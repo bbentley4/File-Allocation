@@ -125,4 +125,3 @@ long jdisk_writes(void *jd)
   d = (Disk *)jd;
   return d->writes;
 }
-

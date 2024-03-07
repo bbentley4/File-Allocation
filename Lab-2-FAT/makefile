@@ -1,6 +1,6 @@
 # Generic makefile
 
-all: jdisk_test  FAT FATRW sectordiff
+all: jdisk_test  FATRW sectordiff
 
 clean:
 	rm -f jdisk_test FAT FATRW sectordiff *.o
