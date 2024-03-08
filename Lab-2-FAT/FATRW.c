@@ -23,7 +23,7 @@ int CalculateDataSectors (int total_sectors)
     // T*512 - D*512 = D+1
     // T*512-1 = 513D
     // ((T*512)-1)/513 = D
-    int data_sectors = ((total_sectors*512)-1)/512;
+    int data_sectors = ((total_sectors*512)-1)/513;
     printf("DS: %i\nBKS: %i", data_sectors, total_sectors-data_sectors);
     return data_sectors;
 }
@@ -31,10 +31,10 @@ int CalculateDataSectors (int total_sectors)
 
 int main(int argc, char **argv)
 {
-    if (argc != 4 && argc != 6)
-    {
-        printf("Usage: ");
-    }
+    // if (argc != 4 && argc != 6)
+    // {
+    //     printf("Usage: ");
+    // }
 
     void* disk_ptr = jdisk_attach(argv[1]);
     int total_sectors =  CalcTotalSectors(disk_ptr);
