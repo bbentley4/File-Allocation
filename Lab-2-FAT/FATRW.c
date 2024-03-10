@@ -50,6 +50,11 @@ int main(int argc, char **argv)
         return -1;
     } 
     
+    // Calculate sectors 
+    total_sectors =  CalcTotalSectors(disk_ptr);
+    data_sectors =  CalculateDataSectors(total_sectors);
+    FAT_sectors = total_sectors - data_sectors;
+
     // Check second argument 
     if (strcmp(argv[2], "import") == 0)
     {
@@ -65,13 +70,19 @@ int main(int argc, char **argv)
         return -1;
     }
 
-    //Check third argument 
-    if (im_ex == 0)
-    {
-        
-    }
-    total_sectors =  CalcTotalSectors(disk_ptr);
-    data_sectors =  CalculateDataSectors(total_sectors);
-    FAT_sectors = total_sectors - data_sectors;
+    // Check third argument 
+    // if (im_ex == 0) // for import 
+    // {
+    //     //do an fopen here
+    // }
+    // else // for export
+    // {
+    //     if (argv[3] > total_sectors || )
+    //     {
+
+    //     }
+    //     else if (argv[3] < FAT_sectors)
+    // }
+
     return 0;
 }
