@@ -1,0 +1,11 @@
+if (strcmp(argv[2], "import") == 0 && argc == 4) {
+        // Import file to the disk
+        import_file(disk_ptr, argv[3]);
+    } else if (strcmp(argv[2], "export") == 0 && argc == 5) {
+        // Export file from the disk
+        int starting_block = atoi(argv[3]);
+        export_file(disk_ptr, starting_block, argv[4]);
+    } else {
+        fprintf(stderr, "Invalid command or arguments\n");
+        jdisk_unattach(disk_ptr);
+        return EXIT_FAILURE;

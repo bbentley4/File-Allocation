@@ -1,3 +1,17 @@
+/*
+    Author: Brenna Bentley
+    Date: 3/11/2024
+    Date of Last Edit: 3/11/2024
+
+    Description: This program is emmulating im- and exporting from disks using .jdisk files 
+                 instead of actual disks. The main focus is the manipulation of the File Allocation
+                 Table, as the read and write operations have been written for me by Dr. James Plank 
+                 in jdisk.c. 
+    For more information:  http://web.eecs.utk.edu/~jplank/plank/classes/cs494/494/labs/Lab-2-FAT/
+
+    Sources: 
+        -I saw Dr. Plank's jdisk_test and decided to implement it as well
+*/
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -5,17 +19,34 @@
 #include <stdint.h>
 #include <sys/mman.h>
 #include <string.h>
+#include <assert.h>
 #include "jdisk.h"
 
-int CalcTotalSectors (void* disk_ptr)
+typedef struct {
+    void* diskptr;
+    int total; // total sectors  
+    int data; // data sectors
+    int fat; // fat sectors
+} DiskStats;
+
+// Prints standard usage error w/ opt to add specifics by passing argument
+void UsageError (char* addtl)
 {
-    unsigned long disk_size = jdisk_size(disk_ptr);
-    // TODO Can always assume 1024? - WRITE AN ASSERT
-    int sectors = disk_size / 1024;
+    printf("Usage: FATRW diskfile import input-file\n");
+    printf("FATRW diskfile export starting-block output-file\n");  
+    if (addtl != NULL)  printf("\t%s\n", addtl);     
+}
+
+// Uses jdisk_size & JDISK_SECTOR_SIZE to return the total number of sectors 
+int CalcTotalSectors (void* diskptr)
+{
+    unsigned long diskSize = jdisk_size(diskptr);
+    int sectors = diskSize / JDISK_SECTOR_SIZE;
     return sectors;
 }
 
-int CalculateDataSectors (int total_sectors)
+// Returns the total number of data sectors (sectors not taken by FAT)
+int CalcDataSectors (int totalSectors)
 {
     // T = total sectors & D = data sectors & S = FAT sectors
     // T = D + S
@@ -25,64 +56,100 @@ int CalculateDataSectors (int total_sectors)
     // T*512 - D*512 = D+1
     // T*512-1 = 513D
     // ((T*512)-1)/513 = D
-    int data_sectors = ((total_sectors*512)-1)/513;
-    return data_sectors;
+    int dataSectors = ((totalSectors*512)-1)/513;
+    return dataSectors;
 }
 
-int main(int argc, char **argv)
+// Prints the links in 1 block of the FAT stored in buff for error checking.
+void PrintFAT (void* buff, int dataSectors)
+{
+    short* links = (short*)buff;
+    for (int i = 0; i <= dataSectors; i++)
+    {
+        printf("Link %d: %d\n", i, links[i]);
+    }
+}
+
+// Set the variables assoc w/ the disk: ptr, total sectors, data sectors, and FAT sectors
+void SetDiskValues (DiskStats ds, char* file)
+{
+    // TODO prevent segfault?
+    ds.diskptr = jdisk_attach(file);
+    if (ds.diskptr == NULL)
+    {
+        UsageError((char*) "Could not attach diskfile.\n");
+        exit(EXIT_FAILURE);
+    } 
+    ds.total =  CalcTotalSectors(ds.diskptr);
+    ds.data =  CalcDataSectors(ds.data);
+    ds.fat = ds.total - ds.data;
+}
+
+void ImportHandler (char* file, DiskStats ds)
+{
+
+} 
+
+void ExportHandler (char* file, DiskStats ds, int sector)
+{
+
+}
+
+int main(int argc, char** argv)
 {
     //Variable declaration 
-    void* disk_ptr;
-    int total_sectors, data_sectors, FAT_sectors;
-    int im_ex; // 0 = import, 1 = export
+    DiskStats ds;
+    void* FAT_buff = malloc(ds.fat * JDISK_SECTOR_SIZE);
+
     // Error check argument count
-    if (argc != 4 && argc != 6)
+    if (argc == 4 && strcmp(argv[2], "import") == 0)
     {
-        printf("Usage: FATRW diskfile import input-file\nFATRW diskfile export starting-block output-file");
-        return -1;
+        // Attach/open disk & error check
+        SetDiskValues(ds, argv[1]);
+    }
+    else if (argc == 5 && strcmp(argv[2], "export") == 0)
+    {
+        // Attach/open disk & error check
+        SetDiskValues(ds, argv[1]);
+
+        int lba;
+        if (sscanf(argv[3], "%d", &lba) == 0) UsageError((char *) "LBA must be an integer value.\n");
+        
+        else if (lba < ds.fat)
+        {
+            printf("Error in Export: LBA is not for a data sector.\n");
+            return -1;
+        }
+        else if (lba > ds.total + 1)
+        {
+            printf("Error in Export: LBA too big\n");
+            return -1;
+        }
+        else // starting-block is valid
+        {
+            // Check argument 4
+            if (argv[4] == NULL)
+            {
+                UsageError((char*) "Please provide the output-file for export\n");
+                return -1;
+            }
+            
+            //TODO fopen/create here for export file. 
+        }
     }
     
-    // Attach/open disk & error check
-    disk_ptr = jdisk_attach(argv[1]);
-    if (disk_ptr == NULL)
-    {
-        perror("Could not attach diskfile.\n");
-        return -1;
-    } 
-    
-    // Calculate sectors 
-    total_sectors =  CalcTotalSectors(disk_ptr);
-    data_sectors =  CalculateDataSectors(total_sectors);
-    FAT_sectors = total_sectors - data_sectors;
 
-    // Check second argument 
-    if (strcmp(argv[2], "import") == 0)
+   
+
+    for (int i = 0; i < ds.fat; i++)
     {
-        im_ex = 0;
-    }
-    else if (strcmp(argv[2], "export") == 0)
-    {
-        im_ex = 1;
-    }
-    else 
-    {
-        printf("Usage: FATRW diskfile import input-file\nFATRW diskfile export starting-block output-file");
-        return -1;
+        jdisk_read(ds.diskptr, i, FAT_buff);
+        PrintFAT (FAT_buff, ds.data);
     }
 
-    // Check third argument 
-    // if (im_ex == 0) // for import 
-    // {
-    //     //do an fopen here
-    // }
-    // else // for export
-    // {
-    //     if (argv[3] > total_sectors || )
-    //     {
-
-    //     }
-    //     else if (argv[3] < FAT_sectors)
-    // }
-
+    /* -------------------------------------------------------------------------- */
+    /*                                  Clean Up                                  */
+    /* -------------------------------------------------------------------------- */
+    free(FAT_buff);
     return 0;
 }
