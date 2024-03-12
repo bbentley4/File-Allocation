@@ -71,18 +71,19 @@ void PrintFAT (void* buff, int dataSectors)
 }
 
 // Set the variables assoc w/ the disk: ptr, total sectors, data sectors, and FAT sectors
-void SetDiskValues (DiskStats ds, char* file)
+void SetDiskValues (DiskStats *ds, char* file)
 {
     // TODO prevent segfault?
-    ds.diskptr = jdisk_attach(file);
-    if (ds.diskptr == NULL)
+    ds->diskptr = jdisk_attach(file);
+    if (ds->diskptr == NULL)
     {
         UsageError((char*) "Could not attach diskfile.\n");
         exit(EXIT_FAILURE);
     } 
-    ds.total =  CalcTotalSectors(ds.diskptr);
-    ds.data =  CalcDataSectors(ds.data);
-    ds.fat = ds.total - ds.data;
+    ds->total = CalcTotalSectors(ds->diskptr);
+    ds->data = CalcDataSectors(ds->total);
+    ds->fat = ds->total - ds->data;
+    printf("diskptr = %p\ntotal: %d\ndata: %d\nfat: %d\n", ds->diskptr, ds->total, ds->data, ds->fat);
 }
 
 void ImportHandler (char* file, DiskStats ds)
@@ -105,12 +106,12 @@ int main(int argc, char** argv)
     if (argc == 4 && strcmp(argv[2], "import") == 0)
     {
         // Attach/open disk & error check
-        SetDiskValues(ds, argv[1]);
+        SetDiskValues(&ds, argv[1]);
     }
     else if (argc == 5 && strcmp(argv[2], "export") == 0)
     {
         // Attach/open disk & error check
-        SetDiskValues(ds, argv[1]);
+        SetDiskValues(&ds, argv[1]);
 
         int lba;
         if (sscanf(argv[3], "%d", &lba) == 0) UsageError((char *) "LBA must be an integer value.\n");
@@ -126,26 +127,27 @@ int main(int argc, char** argv)
             return -1;
         }
         else // starting-block is valid
-        {
-            // Check argument 4
-            if (argv[4] == NULL)
-            {
-                UsageError((char*) "Please provide the output-file for export\n");
-                return -1;
-            }
-            
+        {   
             //TODO fopen/create here for export file. 
+            //TODO is truncate correct?
+            FILE* file_ptr = fopen(argv[4], "w");
+            if (file_ptr == NULL)
+            {
+                perror("Error opening file for w");
+            }
         }
     }
-    
-
-   
-
-    for (int i = 0; i < ds.fat; i++)
+    else if (argc == 2)
     {
-        jdisk_read(ds.diskptr, i, FAT_buff);
-        PrintFAT (FAT_buff, ds.data);
+        SetDiskValues(&ds, argv[1]);
+        printf("diskptr = %p\ntotal: %d\ndata: %d\nfat: %d\n", ds.diskptr, ds.total, ds.data, ds.fat);
+        for (int i = 0; i < ds.fat; i++)
+        {
+            jdisk_read(ds.diskptr, i, FAT_buff);
+            PrintFAT (FAT_buff, ds.data);
+        }
     }
+    else     UsageError(NULL);
 
     /* -------------------------------------------------------------------------- */
     /*                                  Clean Up                                  */
