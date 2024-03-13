@@ -62,32 +62,12 @@ int CalcDataSectors (int totalSectors)
 }
 
 // Prints the links in 1 block of the FAT stored in buff for error checking.
-// void PrintFAT (void* buff, int dataSectors)
-// {
-//     short* links = (short*)buff;
-//     for (int i = 0; i < dataSectors; i++)
-//     {
-//         printf("Link %d: %d\n", i, links[i]);
-//     }
-// }
-
-void PrintFAT(void *buff, int fatSectors, int dataSectors) {
-    short *links = (short *)buff;
-
-    // Iterate over each sector of the FAT
-    for (int sector = 0; sector < fatSectors; sector++) {
-        printf("FAT Sector %d:\n", sector);
-        // Calculate the starting index in the links array for the current sector
-        int start_index = sector * (JDISK_SECTOR_SIZE / sizeof(short));
-
-        // Iterate over each link in the current sector
-        for (int i = 0; i < JDISK_SECTOR_SIZE / sizeof(short); i++) {
-            int index = start_index + i;
-            // Check if the link index is within the range of data sectors
-            if (index <= dataSectors) {
-                printf("Link %d: %d\n", index, links[index]);
-            }
-        }
+void PrintFAT (void* buff)
+{
+    short* links = (short*)buff;
+    for (int i = 0; i < 512; i++)
+    {
+        printf("Link %d: %d\n", i, links[i]);
     }
 }
 
@@ -162,8 +142,11 @@ int main(int argc, char** argv)
     {
         SetDiskValues(&ds, argv[1]);
         printf("diskptr = %p\ntotal: %d\ndata: %d\nfat: %d\n", ds.diskptr, ds.total, ds.data, ds.fat);
-        jdisk_read(ds.diskptr, 0, FAT_buff);
-        PrintFAT (FAT_buff, ds.fat, ds.data);
+        for (int i = 0; i < ds.fat; i++)
+        {
+            jdisk_read(ds.diskptr, 0, FAT_buff);
+            PrintFAT (FAT_buff);
+        }
     }
     else     
     {
