@@ -1,16 +1,16 @@
 /*
     Author: Brenna Bentley
-    Date: 3/11/2024
-    Date of Last Edit: 3/11/2024
+    Date: 3/08/2024
+    Date of Last Edit: 3/12/2024
 
-    Description: This program is emmulating im- and exporting from disks using .jdisk files 
+    Description: This program is emmulating im- and exporting to/from disks using .jdisk files 
                  instead of actual disks. The main focus is the manipulation of the File Allocation
                  Table, as the read and write operations have been written for me by Dr. James Plank 
                  in jdisk.c. 
-    For more information:  http://web.eecs.utk.edu/~jplank/plank/classes/cs494/494/labs/Lab-2-FAT/
+    For more information look at the html pages in this directory written by Dr. Plank.
 
     Sources: 
-        -I saw Dr. Plank's jdisk_test and decided to implement it as well
+        -I saw Dr. Plank's Usage fx in jdisk_test and decided to implement it as well
 */
 #include <stdbool.h>
 #include <stdio.h>
@@ -19,7 +19,8 @@
 #include <stdint.h>
 #include <sys/mman.h>
 #include <string.h>
-#include <assert.h>
+#include <assert.h> //maybe remove later?
+#include <fcntl.h>
 #include "jdisk.h"
 
 typedef struct {
@@ -61,19 +62,39 @@ int CalcDataSectors (int totalSectors)
 }
 
 // Prints the links in 1 block of the FAT stored in buff for error checking.
-void PrintFAT (void* buff, int dataSectors)
-{
-    short* links = (short*)buff;
-    for (int i = 0; i <= dataSectors; i++)
-    {
-        printf("Link %d: %d\n", i, links[i]);
+// void PrintFAT (void* buff, int dataSectors)
+// {
+//     short* links = (short*)buff;
+//     for (int i = 0; i < dataSectors; i++)
+//     {
+//         printf("Link %d: %d\n", i, links[i]);
+//     }
+// }
+
+void PrintFAT(void *buff, int fatSectors, int dataSectors) {
+    short *links = (short *)buff;
+
+    // Iterate over each sector of the FAT
+    for (int sector = 0; sector < fatSectors; sector++) {
+        printf("FAT Sector %d:\n", sector);
+        // Calculate the starting index in the links array for the current sector
+        int start_index = sector * (JDISK_SECTOR_SIZE / sizeof(short));
+
+        // Iterate over each link in the current sector
+        for (int i = 0; i < JDISK_SECTOR_SIZE / sizeof(short); i++) {
+            int index = start_index + i;
+            // Check if the link index is within the range of data sectors
+            if (index <= dataSectors) {
+                printf("Link %d: %d\n", index, links[index]);
+            }
+        }
     }
 }
 
 // Set the variables assoc w/ the disk: ptr, total sectors, data sectors, and FAT sectors
 void SetDiskValues (DiskStats *ds, char* file)
 {
-    // TODO prevent segfault?
+    // TODO prevent segfault
     ds->diskptr = jdisk_attach(file);
     if (ds->diskptr == NULL)
     {
@@ -83,7 +104,7 @@ void SetDiskValues (DiskStats *ds, char* file)
     ds->total = CalcTotalSectors(ds->diskptr);
     ds->data = CalcDataSectors(ds->total);
     ds->fat = ds->total - ds->data;
-    printf("diskptr = %p\ntotal: %d\ndata: %d\nfat: %d\n", ds->diskptr, ds->total, ds->data, ds->fat);
+    //printf("diskptr = %p\ntotal: %d\ndata: %d\nfat: %d\n", ds->diskptr, ds->total, ds->data, ds->fat);
 }
 
 void ImportHandler (char* file, DiskStats ds)
@@ -100,8 +121,12 @@ int main(int argc, char** argv)
 {
     //Variable declaration 
     DiskStats ds;
-    void* FAT_buff = malloc(ds.fat * JDISK_SECTOR_SIZE);
-
+    void* FAT_buff = malloc(JDISK_SECTOR_SIZE);
+    if (FAT_buff == NULL) 
+    {
+        perror("Error allocating memory for FAT buffer");
+        exit(EXIT_FAILURE);
+    }
     // Error check argument count
     if (argc == 4 && strcmp(argv[2], "import") == 0)
     {
@@ -128,26 +153,22 @@ int main(int argc, char** argv)
         }
         else // starting-block is valid
         {   
-            //TODO fopen/create here for export file. 
-            //TODO is truncate correct?
-            FILE* file_ptr = fopen(argv[4], "w");
-            if (file_ptr == NULL)
-            {
-                perror("Error opening file for w");
-            }
+            //TODO is truncate correct
+            int fd = open(argv[4], O_WRONLY | O_CREAT | O_TRUNC, 0666);
+
         }
     }
     else if (argc == 2)
     {
         SetDiskValues(&ds, argv[1]);
         printf("diskptr = %p\ntotal: %d\ndata: %d\nfat: %d\n", ds.diskptr, ds.total, ds.data, ds.fat);
-        for (int i = 0; i < ds.fat; i++)
-        {
-            jdisk_read(ds.diskptr, i, FAT_buff);
-            PrintFAT (FAT_buff, ds.data);
-        }
+        jdisk_read(ds.diskptr, 0, FAT_buff);
+        PrintFAT (FAT_buff, ds.fat, ds.data);
     }
-    else     UsageError(NULL);
+    else     
+    {
+        UsageError(NULL);
+    }
 
     /* -------------------------------------------------------------------------- */
     /*                                  Clean Up                                  */
