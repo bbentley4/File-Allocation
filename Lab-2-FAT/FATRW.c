@@ -12,6 +12,7 @@
     Sources: 
         -I saw Dr. Plank's Usage fx in jdisk_test and decided to implement it as well
 */
+// TODO remove the /n from the usage message when printing out messages
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,10 +20,11 @@
 #include <stdint.h>
 #include <sys/mman.h>
 #include <string.h>
-#include <assert.h> //maybe remove later?
+#include <assert.h> //TODO maybe remove later?
 #include <fcntl.h>
 #include "jdisk.h"
 
+#define LINKS_PER_PAGE (JDISK_SECTOR_SIZE/(sizeof(short)))
 typedef struct {
     void* diskptr;
     int total; // total sectors  
@@ -33,9 +35,9 @@ typedef struct {
 // Prints standard usage error w/ opt to add specifics by passing argument
 void UsageError (char* addtl)
 {
-    printf("Usage: FATRW diskfile import input-file\n");
-    printf("FATRW diskfile export starting-block output-file\n");  
-    if (addtl != NULL)  printf("\t%s\n", addtl);     
+    printf("usage: FATRW diskfile import input-file\n");
+    printf("       FATRW diskfile export starting-block output-file\n");  
+    if (addtl != NULL)  printf("%s\n", addtl);     
 }
 
 // Uses jdisk_size & JDISK_SECTOR_SIZE to return the total number of sectors 
@@ -49,32 +51,21 @@ int CalcTotalSectors (void* diskptr)
 // Returns the total number of data sectors (sectors not taken by FAT)
 int CalcDataSectors (int totalSectors)
 {
-    // T = total sectors & D = data sectors & S = FAT sectors
+    // T = total sectors & D = data sectors & S = FAT sectors & L = links per page
     // T = D + S
-    // S = (D+1)/512
-    // T = D + ((D+1)/512)
-    // T - D = (D+1)/512
-    // T*512 - D*512 = D+1
-    // T*512-1 = 513D
-    // ((T*512)-1)/513 = D
-    int dataSectors = ((totalSectors*512)-1)/513;
+    // S = (D+1)/L
+    // T = D + ((D+1)/L)
+    // T - D = (D+1)/L
+    // T*L - D*L = D+1
+    // T*L-1 = (L+1)D
+    // ((T*L)-1)/(L+1) = D
+    int dataSectors = ((totalSectors*LINKS_PER_PAGE)-1)/(LINKS_PER_PAGE+1);
     return dataSectors;
 }
 
-// Prints the links in 1 block of the FAT stored in buff for error checking.
-void PrintFAT (void* buff)
-{
-    short* links = (short*)buff;
-    for (int i = 0; i < 512; i++)
-    {
-        printf("Link %d: %d\n", i, links[i]);
-    }
-}
-
 // Set the variables assoc w/ the disk: ptr, total sectors, data sectors, and FAT sectors
-void SetDiskValues (DiskStats *ds, char* file)
+void SetDiskValues (DiskStats* ds, char* file)
 {
-    // TODO prevent segfault
     ds->diskptr = jdisk_attach(file);
     if (ds->diskptr == NULL)
     {
@@ -95,6 +86,26 @@ void ImportHandler (char* file, DiskStats ds)
 void ExportHandler (char* file, DiskStats ds, int sector)
 {
 
+}
+
+// Prints the links in 1 block of the FAT stored in buff for error checking.
+void PrintFAT (void* buff, DiskStats ds, int cur_block)
+{
+    short* links = (short*)buff;
+    if (cur_block < ds.fat - 1)
+    {
+        for (int i = 0; i < LINKS_PER_PAGE; i++)
+        {
+            printf("Link %d: %d\n", i + (int)(LINKS_PER_PAGE * cur_block), links[i]);
+        }
+    }
+    else 
+    {
+        for (int i = 0; i < ds.total%LINKS_PER_PAGE; i++)
+        {
+            printf("Link %d: %d\n", i + (int)(LINKS_PER_PAGE * cur_block), links[i]);
+        }
+    }
 }
 
 int main(int argc, char** argv)
@@ -133,9 +144,7 @@ int main(int argc, char** argv)
         }
         else // starting-block is valid
         {   
-            //TODO is truncate correct
-            int fd = open(argv[4], O_WRONLY | O_CREAT | O_TRUNC, 0666);
-
+            int fd = open(argv[4], O_WRONLY | O_CREAT, 0666);
         }
     }
     else if (argc == 2)
@@ -144,14 +153,11 @@ int main(int argc, char** argv)
         printf("diskptr = %p\ntotal: %d\ndata: %d\nfat: %d\n", ds.diskptr, ds.total, ds.data, ds.fat);
         for (int i = 0; i < ds.fat; i++)
         {
-            jdisk_read(ds.diskptr, 0, FAT_buff);
-            PrintFAT (FAT_buff);
+            jdisk_read(ds.diskptr, i, FAT_buff);
+            PrintFAT (FAT_buff, ds, i);
         }
     }
-    else     
-    {
-        UsageError(NULL);
-    }
+    else     UsageError(NULL);
 
     /* -------------------------------------------------------------------------- */
     /*                                  Clean Up                                  */
