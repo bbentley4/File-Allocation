@@ -38,6 +38,7 @@ void UsageError (char* addtl)
     printf("usage: FATRW diskfile import input-file\n");
     printf("       FATRW diskfile export starting-block output-file\n");  
     if (addtl != NULL)  printf("%s\n", addtl);     
+    exit(1);
 }
 
 // Uses jdisk_size & JDISK_SECTOR_SIZE to return the total number of sectors 
@@ -78,14 +79,78 @@ void SetDiskValues (DiskStats* ds, char* file)
     //printf("diskptr = %p\ntotal: %d\ndata: %d\nfat: %d\n", ds->diskptr, ds->total, ds->data, ds->fat);
 }
 
-void ImportHandler (char* file, DiskStats ds)
-{
 
+void ImportHandler (char** argvv, DiskStats ds)
+{
+    int fd = open(argvv[4], O_RDONLY);
+    if (fd == -1)
+    {
+        perror("Error opening input file for reading");
+        exit(-1);
+    }
+
+    void* buffer = malloc(JDISK_SECTOR_SIZE);
+    if (buffer == NULL)
+    {
+        perror("Error allocating memory for import buffer");
+        close(fd);
+        exit(-1);
+    }
+
+    // Read data from file
+    ssize_t bytes_read = read(fd, buffer, ds.total * JDISK_SECTOR_SIZE);
+    if (bytes_read == -1)
+    {
+        perror("Error reading data from input file");
+        free(buffer);
+        close(fd);
+        exit(-1);
+    }
+
+    // Write data to disk
+    for (int i = 0; i < ds.total; i++)
+    {
+        int result = jdisk_write(ds.diskptr, i, buffer + (i * JDISK_SECTOR_SIZE));
+        if (result != 0)
+        {
+            printf("Error writing data to disk at sector %d\n", i);
+            free(buffer);
+            close(fd);
+            exit(-1);
+        }
+    }
+
+    // Cleanup
+    free(buffer);
+    close(fd);
+    printf("Import successful.\n");
+    exit(0);
 } 
 
-void ExportHandler (char* file, DiskStats ds, int sector)
+void ExportHandler (char** argvv, DiskStats ds)
 {
+    // Attach/open disk & error check
+    SetDiskValues(&ds, argvv[1]);
 
+    int lba;
+    if (sscanf(argvv[3], "%d", &lba) == 0) UsageError((char *) "LBA must be an integer value.\n");
+    
+    else if (lba < ds.fat)
+    {
+        printf("Error in Export: LBA is not for a data sector.\n");
+        return -1;
+    }
+    else if (lba > ds.total + 1)
+    {
+        printf("Error in Export: LBA too big\n");
+        return -1;
+    }
+    else // starting-block is valid
+    {   
+        int fd = open(argvv[4], O_WRONLY | O_CREAT, 0666);
+
+    }
+    exit(0);
 }
 
 // Prints the links in 1 block of the FAT stored in buff for error checking.
@@ -116,37 +181,12 @@ int main(int argc, char** argv)
     if (FAT_buff == NULL) 
     {
         perror("Error allocating memory for FAT buffer");
-        exit(EXIT_FAILURE);
+        return -1;
     }
     // Error check argument count
-    if (argc == 4 && strcmp(argv[2], "import") == 0)
-    {
-        // Attach/open disk & error check
-        SetDiskValues(&ds, argv[1]);
-    }
-    else if (argc == 5 && strcmp(argv[2], "export") == 0)
-    {
-        // Attach/open disk & error check
-        SetDiskValues(&ds, argv[1]);
-
-        int lba;
-        if (sscanf(argv[3], "%d", &lba) == 0) UsageError((char *) "LBA must be an integer value.\n");
-        
-        else if (lba < ds.fat)
-        {
-            printf("Error in Export: LBA is not for a data sector.\n");
-            return -1;
-        }
-        else if (lba > ds.total + 1)
-        {
-            printf("Error in Export: LBA too big\n");
-            return -1;
-        }
-        else // starting-block is valid
-        {   
-            int fd = open(argv[4], O_WRONLY | O_CREAT, 0666);
-        }
-    }
+    if (argc == 4 && strcmp(argv[2], "import") == 0)    ImportHandler(argv, ds);
+    else if (argc == 5 && strcmp(argv[2], "export") == 0)   ExportHandler(argv, ds);
+    // THE FOLLOWING ELSE-IF IS FOR TESTING ONLY - NOT FOR USE.
     else if (argc == 2)
     {
         SetDiskValues(&ds, argv[1]);
