@@ -123,7 +123,6 @@ void ImportHandler (char** argvv, DiskStats ds)
     // Cleanup
     free(buffer);
     close(fd);
-    printf("Import successful.\n");
     exit(0);
 } 
 
@@ -131,10 +130,9 @@ void ExportHandler (char** argvv, DiskStats ds)
 {
     // Attach/open disk & error check
     SetDiskValues(&ds, argvv[1]);
-
+    // Check the LBA argument
     int lba;
     if (sscanf(argvv[3], "%d", &lba) == 0) UsageError((char *) "LBA must be an integer value.\n");
-    
     else if (lba < ds.fat)
     {
         printf("Error in Export: LBA is not for a data sector.\n");
@@ -145,10 +143,40 @@ void ExportHandler (char** argvv, DiskStats ds)
         printf("Error in Export: LBA too big\n");
         return -1;
     }
-    else // starting-block is valid
+    // Starting block is valid -- Open file and read from disk into it
+    else 
     {   
         int fd = open(argvv[4], O_WRONLY | O_CREAT, 0666);
+        if (fd == -1)
+        {
+            perror("Error opening input file for reading");
+            exit(-1);
+        }
 
+        void* buffer = malloc(ds.data * JDISK_SECTOR_SIZE);
+        if (buffer == NULL)
+        {
+            perror("Error allocating memory for import buffer");
+            close(fd);
+            exit(-1);
+        }
+
+        for(int i = 0; i < ds.total; i++)
+        {
+            
+        }
+
+        ssize_t bytes_written = write(fd, buffer, ds.total * JDISK_SECTOR_SIZE);
+        if (bytes_written == -1)
+        {
+            perror("Error writing data to output file");
+            free(buffer);
+            close(fd);
+            exit(-1);
+        }
+
+        free(buffer);
+        close(fd);
     }
     exit(0);
 }
