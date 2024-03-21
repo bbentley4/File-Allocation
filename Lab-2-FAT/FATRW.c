@@ -169,16 +169,16 @@ void ImportHandler (char** argvv, DiskStats *ds)
     {
         unsigned short free_link = GetLink(0, ds);
         unsigned short linked_block = LinkToBlock(free_link, ds);
-        printf("free link: %d\nlinked block: %d\n", free_link, linked_block);
         // Disk is full if link index 0 has value 0.
-        if (linked_block == 0)
+        //fprintf(stderr, "free link: %d\nlinked block: %d\n", free_link, linked_block);
+        if (free_link == 0)
         {
             fprintf(stderr, "Error: Not enough space for the file. Exit.\n");
             exit(-1);
         }
         // Update Link 0 to reflect the new first free link & new linked block
-        UpdateLink(0, free_link, ds);
-        linked_block = LinkToBlock(free_link, ds);
+        UpdateLink(0, GetLink(free_link, ds), ds);
+        //linked_block = LinkToBlock(free_link, ds);
         // Read from file
         int bytes_read = read(fd, buffer, JDISK_SECTOR_SIZE);
         // Error check
@@ -189,17 +189,19 @@ void ImportHandler (char** argvv, DiskStats *ds)
             exit(-1);
         }
 
+        //fprintf(stderr, "link: %i, block: %i, read size: %i\n", free_link, linked_block, bytes_read);
+
         // Update file size
         file_size -= bytes_read;
 
         // Check Case
         // EXACT CASE - File end exists on current "free link", set its reference to 0 to indicate block is full and file is complete
-        if (file_size == 0 && bytes_read == JDISK_SECTOR_SIZE)  
+        if (file_size == 0 && bytes_read == JDISK_SECTOR_SIZE)
         {
-            UpdateLink(free_link, 0, ds);
+            UpdateLink (free_link, 0, ds);
         }
         // UNEVEN FILE - File end exists on current "free link", set its reference to itself to indicate block is NOT full, but file is complete
-        else if (file_size == 0 && bytes_read < JDISK_SECTOR_SIZE)  
+        else if (file_size == 0 && bytes_read < JDISK_SECTOR_SIZE)
         {
             UpdateLink(free_link, free_link, ds);
             // WHY DO WE DO THIS?
@@ -210,7 +212,7 @@ void ImportHandler (char** argvv, DiskStats *ds)
             {
                 buffer[JDISK_SECTOR_SIZE - 1] = 0xFF;
             }
-            else 
+            else
             {
                 char low_byte = bytes_read & 0xFF; // & 0xFF leaves the least insignficant byte
                 char high_byte = (bytes_read >> 8) & 0xFF; // Shifting then &'ing gives the most significant byte
@@ -218,13 +220,12 @@ void ImportHandler (char** argvv, DiskStats *ds)
                 buffer[JDISK_SECTOR_SIZE - 2] = low_byte;
                 buffer[JDISK_SECTOR_SIZE - 1] = high_byte;
             }
-            UpdateLink(free_link, free_link, ds);
         }
         jdisk_write(ds->diskptr, linked_block, buffer);
     }
 
     // Update Disk
-    UpdateDiskFAT(ds); 
+    UpdateDiskFAT(ds);
     // Print to user
     printf("New file starts at sector %d\n", start_block);
     int num_reads = jdisk_reads(ds->diskptr);
@@ -233,7 +234,7 @@ void ImportHandler (char** argvv, DiskStats *ds)
     // Clean up
     close(fd);
     exit(0);
-} 
+}
 
 void ExportHandler (char** argvv, DiskStats *ds)
 {
@@ -255,8 +256,8 @@ void ExportHandler (char** argvv, DiskStats *ds)
         exit(-1);
     }
     // Starting block is valid -- Open file and read from disk into it
-    else 
-    {   
+    else
+    {
         int fd = open(argvv[4], O_WRONLY | O_CREAT, 0666);
         if (fd == -1)
         {
@@ -264,7 +265,7 @@ void ExportHandler (char** argvv, DiskStats *ds)
             exit(-1);
         }
 
-       char buffer[JDISK_SECTOR_SIZE];
+        unsigned  char buffer[JDISK_SECTOR_SIZE];
 
         unsigned short link_index = BlocktoLink(lba, ds);
         unsigned short link_value = GetLink(link_index, ds);
@@ -273,7 +274,8 @@ void ExportHandler (char** argvv, DiskStats *ds)
         // do {} while(link_value != 0 || link_value != link_index)
         while(true)
         {
-            jdisk_read(ds->diskptr, link_index, buffer);
+            //fprintf(stderr, "lba %d, link_value: %d\n RUN THROUGH CODE\n", lba, link_value);
+            jdisk_read(ds->diskptr, lba, buffer);
 
             // EXACT CASE - File end exists on current "free link", set its reference to 0 to indicate block is full and file is complete
             if(link_value == 0)
@@ -281,7 +283,7 @@ void ExportHandler (char** argvv, DiskStats *ds)
                 // Write the whole block, then break. The file is done.
                 if (write(fd, buffer, JDISK_SECTOR_SIZE) != JDISK_SECTOR_SIZE)
                 {
-                    perror("Error writing to output file");
+                    perror("Exact case - Error writing to output file");
                     close(fd);
                     exit(-1);
                 }
@@ -291,13 +293,27 @@ void ExportHandler (char** argvv, DiskStats *ds)
             // We figure out the size using the last 2 bytes.
             else if (link_value == link_index)
             {
-                char low_byte = buffer[JDISK_SECTOR_SIZE - 2];
-                char high_byte = buffer[JDISK_SECTOR_SIZE -1];
-                int bytes_written = (high_byte << 8) | low_byte;
+                unsigned short bytes_written = 0;
+                //fprintf(stderr, "last byte in buff: %#hhx\n", buffer[JDISK_SECTOR_SIZE - 1]);
+
+                if (buffer[JDISK_SECTOR_SIZE - 1] == 0xFF)
+                {
+                    //fprintf(stderr, "in special case\n");
+                    bytes_written = 1023;
+                }
+                else
+                {
+                    unsigned char low_byte = buffer[JDISK_SECTOR_SIZE - 2];
+                    unsigned char high_byte = buffer[JDISK_SECTOR_SIZE - 1];
+                    bytes_written = (high_byte << 8) | low_byte;
+                    //fprintf(stderr, "highbyte: %#hhx, lowbyte: %#hhx\n", high_byte, low_byte);
+                    //fprintf(stderr, "\n highbyte shifted: %#hx \n", bytes_written);                   
+                }
                 // Write part of the block, then break. The file is done.
+                //fprintf(stderr, "Bytes Written: %#hx, in decimal: %hu\n", bytes_written, bytes_written);
                 if (write(fd, buffer, bytes_written) != bytes_written)
                 {
-                    perror("Error writing to output file");
+                    perror("Uneven case - Error writing to output file");
                     close(fd);
                     exit(-1);
                 }
@@ -308,10 +324,13 @@ void ExportHandler (char** argvv, DiskStats *ds)
             // Error check the write
             if (write(fd, buffer, JDISK_SECTOR_SIZE) != JDISK_SECTOR_SIZE)
             {
-                perror("Error writing to output file");
+                perror("Continue case - Error writing to output file");
                 close(fd);
                 exit(-1);
             }
+
+            lba = LinkToBlock(link_value, ds);
+            //fprintf(stderr, "lba: %d, link_value: %d\n", lba, link_value);
             link_index = BlocktoLink(link_value, ds);
             link_value = GetLink(link_index, ds);
         }
@@ -339,9 +358,11 @@ unsigned short GetLink (unsigned short link_index, DiskStats* ds)
 void UpdateLink (unsigned short link_index, unsigned short new_value, DiskStats* ds)
 {
     int block = link_index/LINKS_PER_PAGE;
-    int index_in_block = link_index/LINKS_PER_PAGE;
+    int index_in_block = link_index%LINKS_PER_PAGE;
     ds->FATable[block][index_in_block] = new_value;
     ds->updated_blocks[block] = 1;
+    //fprintf(stderr, "\n FUNCTION!! \n ARGS: link_ind: %d, value: %d\nBlock: %d, IiB: %d, updated-block: %d\n",link_index, new_value, block, index_in_block, ds->updated_blocks[block]);
+    //fprintf(stderr, "FAT[%i][%i] = %i\n", block, index_in_block, ds->FATable[block][index_in_block]);
 }
 
 void UpdateDiskFAT (DiskStats* ds)
@@ -350,7 +371,8 @@ void UpdateDiskFAT (DiskStats* ds)
     {
         if(ds->updated_blocks[i])
         {
-            jdisk_write(ds->diskptr, i, ds->FATable[i]);
+            int success = jdisk_write(ds->diskptr, i, ds->FATable[i]);
+            //fprintf(stderr, "Block (UpdateDiskFAT): %d ... success? %d \n", i, success);
         }
     }
 }
