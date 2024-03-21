@@ -312,6 +312,8 @@ void ExportHandler (char** argvv, DiskStats *ds)
                 close(fd);
                 exit(-1);
             }
+            link_index = BlocktoLink(link_value, ds);
+            link_value = GetLink(link_index, ds);
         }
         close(fd);
         int num_reads = jdisk_reads(ds->diskptr);
