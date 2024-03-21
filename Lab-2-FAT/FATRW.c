@@ -80,7 +80,9 @@ int main(int argc, char** argv)
     return 0;
 }
 
-
+/* -------------------------------------------------------------------------- */
+/*                            FUNCTION DEFINITIONS                            */
+/* -------------------------------------------------------------------------- */
 // Prints standard usage error w/ opt to add specifics by passing argument
 void UsageError (char* addtl)
 {
