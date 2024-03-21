@@ -11,8 +11,9 @@
 
     Sources: 
         -I saw Dr. Plank's Usage fx in jdisk_test and decided to implement it as well
+        - Bitshifting: https://stackoverflow.com/questions/14713102/what-does-and-0xff-do
 */
-// TODO remove the /n from the usage message when printing out messages
+
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -33,6 +34,58 @@ typedef struct {
     unsigned short **FATable;
     int* updated_blocks;
 } DiskStats;
+
+void UsageError(char* addtl);
+int CalcTotalSectors(void* diskptr);
+int CalcDataSectors(int totalSectors);
+void SetDiskValues(DiskStats* ds, char* file);
+void ImportHandler(char** argvv, DiskStats *ds);
+void ExportHandler(char** argvv, DiskStats *ds);
+unsigned short GetLink(unsigned short link_index, DiskStats* ds);
+void UpdateLink(unsigned short link_index, unsigned short new_value, DiskStats* ds);
+void UpdateDiskFAT(DiskStats* ds);
+unsigned int LinkToBlock(unsigned short link, int fat);
+unsigned short BlocktoLink(unsigned int block, int fat);
+void PrintFAT(void* buff, DiskStats ds, int cur_block);
+
+/* -------------------------------------------------------------------------- */
+/*                                    MAIN                                    */
+/* -------------------------------------------------------------------------- */
+int main(int argc, char** argv)
+{
+    // Variable declaration 
+    DiskStats ds;
+    // Calloc the FATable from the ds struct
+    ds.FATable = (unsigned short **)calloc(ds.total, sizeof(unsigned short *));
+    if (ds.FATable == NULL)
+    {
+        perror("Error allocating memory for FATable");
+        free(ds.FATable);
+        return -1;
+    }
+    ds.updated_blocks = (int*)calloc(ds.total, sizeof(int));
+    if (ds.updated_blocks == NULL)
+    {
+        perror("Error allocating memory for updated_blocks");
+        free(ds.updated_blocks);
+        return -1;
+    }
+    {
+        perror("Error allocating memory for FAT buffer");
+        return -1;
+    }
+    
+    // Error check argument count
+    if (argc == 4 && strcmp(argv[2], "import") == 0)    ImportHandler(argv, ds);
+    else if (argc == 5 && strcmp(argv[2], "export") == 0)   ExportHandler(argv, ds);
+    else     UsageError(NULL);
+
+    /* -------------------------------------------------------------------------- */
+    /*                                  Clean Up                                  */
+    /* -------------------------------------------------------------------------- */
+    return 0;
+}
+
 
 // Prints standard usage error w/ opt to add specifics by passing argument
 void UsageError (char* addtl)
@@ -105,9 +158,10 @@ void ImportHandler (char** argvv, DiskStats *ds)
     unsigned short start_link = GetLink(0, &ds);
     unsigned int start_block = LinkToBlock(start_link, ds->fat);
 
-    while (file_size > 0)
+    while (true)
     {
         unsigned short free_link = GetLink(0, &ds);
+        // Disk is full if link index 0 has value 0.
         if (free_link == 0)
         {
             fprintf("Error: Not enough space for the file. Exit. \n");
@@ -115,14 +169,16 @@ void ImportHandler (char** argvv, DiskStats *ds)
         }
         // Update Link 0 to reflect the new first free link
         UpdateLink(0, free_link, &ds);
-        unsigned int next_block = LinkToBlock(free_link, ds->fat);
+        unsigned int linked_block = LinkToBlock(free_link, ds->fat);
 
         // Read from file
         int bytes_read = read(fd, buffer, JDISK_SECTOR_SIZE);
         // Error check
         if (bytes_read < 0)
         {
-            //error
+            perror("Error reading from disk.\n");
+            close(fd);
+            exit(-1);
         }
 
         // Update file size
@@ -133,31 +189,49 @@ void ImportHandler (char** argvv, DiskStats *ds)
         if (file_size == 0 && bytes_read == JDISK_SECTOR_SIZE)  
         {
             SetLink(free_link, 0);
+            jdisk_write(ds->diskptr, linked_block, buffer);
+            break;
         }
         // UNEVEN FILE - File end exists on current "free link", set its reference to itself to indicate block is NOT full, but file is complete
         else if (file_size == 0 && bytes_read < JDISK_SECTOR_SIZE)  
         {
             SetLink(free_link, free_link);
             // WHY DO WE DO THIS?
-            // Great question, it's dumb. No, but seriously, if the file is 1 less bytes than max, we use show this special case by setting the last byte to 0xFF.
+            // If the file is 1 less bytes than max sector size, we use show this special case by setting the last byte to 0xFF.
             // If the file is 2+ bytes smaller than the max sector size, we need to set the last 2 bytes to the size of the file in little endian hex. 
             // This is to prevent us from exporting garbage bytes from the disk later on.
             if (bytes_read == JDISK_SECTOR_SIZE - 1)
             {
-                buffer[JDISK_SECTOR_SIZE - 1] = 255; //0xFF in hex
+                buffer[JDISK_SECTOR_SIZE - 1] = 0xFF;
             }
             else 
             {
-                
+                char low_byte = bytes_read & 0xFF; // & 0xFF leaves the least insignficant byte
+                char high_byte = (bytes_read >> 8) & 0xFF; // Shifting then &'ing gives the most significant byte
+                // Little endian is low sig byte first
+                buffer[JDISK_SECTOR_SIZE - 2] = low_byte;
+                buffer[JDISK_SECTOR_SIZE - 1] = high_byte;
             }
+            SetLink(free_link, free_link);
+            jdisk_write(ds->diskptr, linked_block, buffer);
+            break;
         }
-        jdisk_write(ds->diskptr, next_block, buffer);
+        else // THERE'S MORE TO READ
+        {
+            jdisk_write(ds->diskptr, linked_block, buffer);
+            free_link = GetLink(0, &ds);
+            linked_block = LinkToBlock(free_link, ds->fat);
+        }
     }
 
-    // Cleanup
-    UpdateDiskFAT(&ds);
-    //print starting block
-    //print jdisk reads and jdisk writes
+    // Update Disk
+    UpdateDiskFAT(&ds); 
+    // Print to user
+    printf("File starts at block: %d\n", start_block);
+    int num_reads = jdisk_reads(ds->diskptr);
+    int num_writes = jdisk_writes(ds->diskptr);
+    printf("Reads: %d\nWrites: %d\n", num_reads, num_writes);
+    // Clean up
     close(fd);
     exit(0);
 } 
@@ -169,19 +243,18 @@ void ExportHandler (char** argvv, DiskStats *ds)
 
     // Check the LBA argument
     int lba;
+    // Error checking
     if (sscanf(argvv[3], "%d", &lba) == 0) UsageError((char *) "LBA must be an integer value.\n");
     else if (lba < ds->fat)
     {
         printf("Error in Export: LBA is not for a data sector.\n");
         return -1;
     }
-    //TODO Why +1?
-    else if (lba > ds->total + 1)
+    else if (lba > ds->total)
     {
         printf("Error in Export: LBA too big\n");
         return -1;
     }
-    
     // Starting block is valid -- Open file and read from disk into it
     else 
     {   
@@ -198,10 +271,10 @@ void ExportHandler (char** argvv, DiskStats *ds)
         unsigned short link_value = GetLink(link_index, ds);
         int file_size = 0;
 
+        // When link value is 0 or the same as the index, it means we've reached the last block the file is on.
         while(link_value != 0 || link_value != link_index)
         {
             jdisk_read(ds->diskptr, link_index, buffer);
-
         }
     
         close(fd);
@@ -241,14 +314,14 @@ void UpdateDiskFAT (DiskStats* ds)
     }
 }
 
-//Use for import
+//Use for import - Converts actual block number to LBA to return to user
 unsigned int LinkToBlock (unsigned short link, int fat)
 {
     // Returns actual block 
     return (unsigned int)(link + fat - 1);
 }
 
-//Use for export
+//Use for export - Convert the LBA from the user to the actual block
 unsigned short BlocktoLink (unsigned int block, int fat)
 {
     // Returns link index in FAT that corresponds to the block.
@@ -273,39 +346,4 @@ void PrintFAT (void* buff, DiskStats ds, int cur_block)
             printf("Link %d: %d\n", i + (int)(LINKS_PER_PAGE * cur_block), links[i]);
         }
     }
-}
-
-int main(int argc, char** argv)
-{
-    // Variable declaration 
-    DiskStats ds;
-    // Calloc the FATable from the ds struct
-    ds.FATable = (unsigned short **)calloc(ds.total, sizeof(unsigned short *));
-    if (ds.FATable == NULL)
-    {
-        perror("Error allocating memory for FATable");
-        free(ds.FATable);
-        return -1;
-    }
-    ds.updated_blocks = (int*)calloc(ds.total, sizeof(int));
-    if (ds.updated_blocks == NULL)
-    {
-        perror("Error allocating memory for updated_blocks");
-        free(ds.updated_blocks);
-        return -1;
-    }
-    {
-        perror("Error allocating memory for FAT buffer");
-        return -1;
-    }
-    
-    // Error check argument count
-    if (argc == 4 && strcmp(argv[2], "import") == 0)    ImportHandler(argv, ds);
-    else if (argc == 5 && strcmp(argv[2], "export") == 0)   ExportHandler(argv, ds);
-    else     UsageError(NULL);
-
-    /* -------------------------------------------------------------------------- */
-    /*                                  Clean Up                                  */
-    /* -------------------------------------------------------------------------- */
-    return 0;
 }
