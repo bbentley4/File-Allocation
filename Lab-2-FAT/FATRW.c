@@ -266,14 +266,13 @@ void ExportHandler (char** argvv, DiskStats *ds)
 
        char buffer[JDISK_SECTOR_SIZE];
 
-        int file_size = 0;
+        unsigned short link_index = BlocktoLink(lba, ds);
+        unsigned short link_value = GetLink(link_index, ds);
 
         // If do-while existed in C, then I would make this 
         // do {} while(link_value != 0 || link_value != link_index)
         while(true)
         {
-            unsigned short link_index = BlocktoLink(lba, ds);
-            unsigned short link_value = GetLink(link_index, ds);
             jdisk_read(ds->diskptr, link_index, buffer);
 
             // EXACT CASE - File end exists on current "free link", set its reference to 0 to indicate block is full and file is complete
