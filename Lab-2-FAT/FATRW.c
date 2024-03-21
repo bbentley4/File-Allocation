@@ -226,7 +226,7 @@ void ImportHandler (char** argvv, DiskStats *ds)
     // Update Disk
     UpdateDiskFAT(ds); 
     // Print to user
-    printf("File starts at block: %d\n", start_block);
+    printf("New file starts at sector %d\n", start_block);
     int num_reads = jdisk_reads(ds->diskptr);
     int num_writes = jdisk_writes(ds->diskptr);
     printf("Reads: %d\nWrites: %d\n", num_reads, num_writes);
@@ -318,7 +318,7 @@ void ExportHandler (char** argvv, DiskStats *ds)
         close(fd);
         int num_reads = jdisk_reads(ds->diskptr);
         int num_writes = jdisk_writes(ds->diskptr);
-        fprintf(stderr, "Reads: %d\nWrites: %d\n", num_reads, num_writes);
+        printf("Reads: %d\nWrites: %d\n", num_reads, num_writes);
     }
     exit(0);
 }
